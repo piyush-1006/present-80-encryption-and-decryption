@@ -1,0 +1,147 @@
+#include <iostream>
+#include <iomanip>
+#include <cstdint>
+
+using namespace std;
+
+//------------------------------
+uint8_t sbox[16] = {
+    0xC, 0x5, 0x6, 0xB,
+    0x9, 0x0, 0xA, 0xD,
+    0x3, 0xE, 0xF, 0x8,
+    0x4, 0x7, 0x1, 0x2
+};
+
+uint8_t layer[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+//---------------- KEY FUNCTIONS ----------------
+void rot1(uint8_t key[10]) {
+    uint8_t msb = (key[0] & 0x80) >> 7;
+    for (int i = 0; i < 9; i++)
+        key[i] = (key[i] << 1) | (key[i + 1] >> 7);
+    key[9] = (key[9] << 1) | msb;
+}
+
+void rotate61(uint8_t key[10]) {
+    for (int i = 0; i < 61; i++)
+        rot1(key);
+}
+
+void XORfunc(uint8_t key[10], uint8_t y) {
+    if (y % 2 == 0)
+        key[7] = key[7] ^ (y >> 1);
+    else {
+        key[7] = key[7] ^ ((y - 1) >> 1);
+        key[8] = key[8] ^ 128;
+    }
+}
+
+void Sfunc_key(uint8_t key[10]) {
+    uint8_t upper = key[0] >> 4;
+    uint8_t lower = key[0] & 0x0F;
+    upper = sbox[upper];
+    key[0] = (upper << 4) | lower;
+}
+
+//---------------- KEY CLASS ----------------
+class genKeyregister {
+public:
+    uint8_t KeyRegister[32][10];
+
+    genKeyregister() {
+        uint8_t masterkey[10] = {
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23
+        };
+
+        uint8_t temp2[10];
+        for (int i = 0; i < 10; i++) {
+            temp2[i] = masterkey[i];
+            KeyRegister[0][i] = masterkey[i];
+        }
+
+        for (int i = 0; i < 31; i++) {
+            rotate61(temp2);
+            Sfunc_key(temp2);
+            XORfunc(temp2, i + 1);
+            for (int j = 0; j < 10; j++)
+                KeyRegister[i + 1][j] = temp2[j];
+        }
+    }
+};
+
+//---------------- LAYER FUNCTIONS ----------------
+void Sfunc_layer(uint8_t layer[8], int i) {
+    uint8_t upper = layer[i] >> 4;
+    uint8_t lower = layer[i] & 0x0F;
+    upper = sbox[upper];
+    lower = sbox[lower];
+    layer[i] = (upper << 4) | lower;
+}
+
+void XORAll(uint8_t layer[8], uint8_t roundkey[10]) {
+    for (int i = 0; i < 8; i++)
+        layer[i] ^= roundkey[i];
+}
+
+void S_16boxes(uint8_t layer[8]) {
+    for (int i = 0; i < 8; i++)
+        Sfunc_layer(layer, i);
+}
+
+void P_layer(uint8_t layer[8]) {
+    uint8_t state[8];
+    uint8_t temp2[8] = {0};
+    for (int i = 0; i < 8; i++) state[i] = layer[i];
+
+    for (int j = 0; j < 64; j++) {
+        uint8_t y = (j == 63) ? 63 : (j * 16) % 63;
+        uint8_t q = y / 8;
+        uint8_t z = y % 8;
+        uint8_t h = j / 8;
+        uint8_t m = j % 8;
+        uint8_t bit = (state[h] >> (7 - m)) & 1;
+        temp2[q] |= (bit << (7 - z));
+    }
+    for (int i = 0; i < 8; i++) layer[i] = temp2[i];
+}
+
+void printlayer(uint8_t layer[8]) {
+    cout << "State: ";
+    for (int j = 0; j < 8; j++) {
+        cout << hex << uppercase << setfill('0') << setw(2) << (int)layer[j] << " ";
+    }
+    cout << endl;
+}
+
+//---------------- ENCRYPT ----------------
+void createnext32layer(uint8_t layer[8], uint8_t KeyRegister[32][10]) {
+    for (int i = 0; i < 31; i++) {
+        uint8_t roundkey[10];
+        for (int j = 0; j < 10; j++)
+            roundkey[j] = KeyRegister[i][j];
+
+        XORAll(layer, roundkey);
+        S_16boxes(layer);
+        P_layer(layer);
+        printlayer(layer);
+    }
+
+    uint8_t roundkey[10];
+    for (int j = 0; j < 10; j++)
+        roundkey[j] = KeyRegister[31][j];
+
+    XORAll(layer, roundkey);
+    printlayer(layer);
+}
+
+//---------------- MAIN ----------------
+int main() {
+    // 1. Create the object (Instantiation)
+    genKeyregister obj; 
+
+    // 2. Pass the data inside the object to the function
+    // We access the array inside obj using obj.KeyRegister
+    createnext32layer(layer, obj.KeyRegister);
+
+    return 0;
+}
