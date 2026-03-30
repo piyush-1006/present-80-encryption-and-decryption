@@ -1,0 +1,230 @@
+#include<iostream>
+#include<iomanip>
+#include<cmath>
+#include <cstdint>
+using namespace std;
+
+uint8_t sbox[16] = {
+    0xC,0x5,0x6,0xB,
+    0x9,0x0,0xA,0xD,
+    0x3,0xE,0xF,0x8,
+    0x4,0x7,0x1,0x2
+};
+uint8_t decryptsbox[16] = {
+    0x5,0xE,0xF,0x8,
+    0xC,0x1,0x2,0xD,
+    0xB,0x4,0x6,0x3,
+    0x0,0x7,0x9,0xA
+};
+ uint8_t layer[8]={
+      //0x10,0x24,0x60,0x24,0x68,0xAC,0xF1,0x35
+        0x00,0x00,0x00, 0x00, 0x00, 0x00, 0x00 ,0x00
+       // 0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF
+      //0x01,0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef
+      //0x01,0x23,0x45,0x67,0x00,0x00,0x00,0x00
+      //0x24,0xac,0xea, 0xdd ,0xa7 ,0x5b ,0x4e ,0x47
+      //0x12,0x34,0xAB,0xCD,0x56,0x78,0x9A,0xEF
+     // 0xf8 ,0xdd ,0x50 ,0x53 ,0x1d ,0x97 ,0x3b ,0xde
+     //0x6a ,0xa7 ,0x8d ,0xef ,0x1e ,0x56 ,0xbd ,0x64
+     };
+//*GEN KEY REGISTER*-------------------------------
+void rot1(uint8_t key[10]){
+    uint8_t msb=(key[0]&0x80)>>7;
+    for (int i = 0; i < 9; i++)
+    {
+        key[i]=key[i]<<1|key[i+1]>>7;
+    }
+    key[9]=(key[9]<<1)|msb;
+}
+
+void decryptrot1(uint8_t key[10]){
+    uint8_t lsb=(key[9]&0x01);
+    for (int i = 0; i < 9; i++)
+    {
+        key[9-i]=(key[9-i]>>1)|((key[8-i]&0x01)<<7);
+    }
+    key[0]=key[0]|(lsb<<7);
+}
+//--------------
+void rotate61(uint8_t key[10]){
+    for (int i = 0; i < 61; i++)
+    {
+        rot1(key);
+    }
+}
+void decryptrotate61(uint8_t key[10]){
+    for (int i = 0; i < 61; i++)
+    {
+        decryptrot1(key);
+    }
+    
+}
+//--------------
+void XORfunc(uint8_t key[10],uint8_t  y){
+      if ((y)%2==0)
+      {
+        key[7]=key[7]^((y)>>1);
+      }else{
+        key[7]=key[7]^(((y)-1)>>1);
+        key[8]=key[8]^128;
+      }
+      
+}
+void decryptXORfunc(uint8_t key[10],uint8_t y){
+    if ((32-y)%2==0)
+      {
+        key[7]=key[7]^((32-y)>>1);
+      }else{
+        key[7]=key[7]^(((32-y)-1)>>1);
+        key[8]=key[8]^128;
+      }
+}
+//--------------
+void Sfunc(uint8_t key[10]) {
+    uint8_t upper = key[0] >> 4;      
+    uint8_t lower = key[0] & 0x0F;    
+
+    upper = sbox[upper];              
+
+    key[0] = (upper << 4) | lower;
+}
+
+void decryptSfunc(uint8_t key[10]){
+    uint8_t upper = key[0] >> 4;      
+    uint8_t lower = key[0] & 0x0F;    
+
+    upper = decryptsbox[upper];              
+
+    key[0] = (upper << 4) | lower;
+}
+//-------------END GEN KEYREGISTER
+class genKeyregister {
+private:
+    uint8_t masterkey[10] = {
+        0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,0x01,0x23
+    };
+
+public:
+    uint8_t KeyRegister[32][10];
+
+    genKeyregister() {
+        uint8_t temp2[10];
+
+        for (int i = 0; i < 10; i++) {
+            temp2[i] = masterkey[i];
+            KeyRegister[0][i] = masterkey[i];
+        }
+
+        for (int i = 0; i < 31; i++) {             
+               rotate61(temp2);
+               Sfunc(temp2);
+               XORfunc(temp2, i + 1);
+            
+            for (int j = 0; j < 10; j++)
+                KeyRegister[i + 1][j] = temp2[j];
+        }
+    }
+};
+//---------------------------------P LAYER DECRYPTION
+
+void decryptSfunc(uint8_t layer[8],int i) {
+    uint8_t upper = layer[i] >> 4;      
+    uint8_t lower = layer[i] & 0x0F;    
+
+    upper = decryptsbox[upper];  
+    lower= decryptsbox[lower];            
+
+    layer[i] = (upper << 4) | lower;
+} 
+//---------------------
+void XORAll(uint8_t layer[8],uint8_t roundkey[10]){
+    for (int i = 0; i < 8; i++)
+    {
+        layer[i]=layer[i]^roundkey[i];
+    }
+    
+}
+//---------------------
+void decryptS_16boxes(uint8_t layer[8]){
+     for (int i = 0; i < 8; i++)
+     {
+        decryptSfunc(layer,i);
+     } 
+}
+//---------------------
+void decryptP_layer(uint8_t layer[8]){
+    uint8_t state[8];
+    uint8_t temp2[8]={0,0,0,0,0,0,0,0};
+    for (int i = 0; i < 8; i++)
+    {
+        state[i]=layer[i];
+    }
+    
+    for (int j = 0; j < 64; j++)
+    {
+        uint8_t bit=0;
+        uint8_t bit2=0;
+        uint8_t y;
+        if (j == 63)
+           y = 63;
+        else
+           y = (j * 4) % 63;
+                           // uint8_t y=(j*16)%63;  //bit after p-layer
+        uint8_t q=y/8;    //byte after p-layer
+        uint8_t z=y%8;   //index of bit in that byte
+                        
+        uint8_t h=j/8;   //byte index before
+        uint8_t m=(j%8);  //index in that byte
+        // uint8_t n=(1<<m);
+        // uint8_t static num=128;//  uint8_t p=pow(2,z); //uses for masking 
+        
+        bit=(state[h]>>(7-m))&1;
+        bit2=bit<<(7-z);
+        temp2[q]=temp2[q]|bit2; 
+    }
+     for (int i = 0; i < 8; i++)
+     {
+            layer[i]=temp2[i];
+     }
+}
+void printlayer(uint8_t layer[8]) {
+    cout << "State: ";
+    for (int j = 0; j < 8; j++) {
+        cout << hex << setw(2) << setfill('0')
+             << (int)layer[j] << " ";
+    }
+    cout << dec << endl;
+}
+
+void createnext32layer(uint8_t layer[8],uint8_t KeyRegister[32][10]){
+    
+    for (int i = 0; i < 31; i++)
+    {
+        uint8_t roundkey[10];
+        for (int j = 0; j < 10; j++)
+        {
+           roundkey[j]=KeyRegister[31-i][j];
+        }       
+        XORAll(layer,roundkey);
+        decryptP_layer(layer);
+        decryptS_16boxes(layer);
+       
+        printlayer(layer);
+    }
+    uint8_t roundkey[10];
+        for (int j = 0; j < 10; j++)
+        {
+           roundkey[j]=KeyRegister[0][j];
+        }       
+     XORAll(layer,roundkey);
+      for (int j = 0; j < 8; j++) {
+        cout << hex << setw(2) << setfill('0')
+             << (int)layer[j] << " ";
+    }
+    cout << dec << endl;
+      
+}
+int main(){
+    genKeyregister obj;
+    createnext32layer(layer,obj.KeyRegister);
+}
